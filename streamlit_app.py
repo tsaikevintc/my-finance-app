@@ -2,106 +2,74 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 
-st.set_page_config(page_title="資產管理APP", layout="wide")
+st.set_page_config(page_title="診斷模式-資產管理", layout="wide")
 
-# 你的試算表網址與 GID
-BASE_URL = "https://docs.google.com/spreadsheets/d/1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4/export?format=csv"
+# 你的 GID
 GID_CASH = "526580417"
 GID_INVEST = "1335772092"
+SHEET_ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
 
-def safe_float(val):
-    try:
-        return float(str(val).replace(',', '').strip())
-    except:
-        return 0.0
+# 換一種更直接的 CSV 匯出網址格式
+def get_url(gid):
+    return f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
 
-@st.cache_data(ttl=300)
-def get_data():
-    # 讀取資料
-    df_c = pd.read_csv(f"{BASE_URL}&gid={GID_CASH}")
-    df_i = pd.read_csv(f"{BASE_URL}&gid={GID_INVEST}")
-    return df_c, df_i
+@st.cache_data(ttl=60)
+def fetch_raw_data(gid):
+    url = get_url(gid)
+    df = pd.read_csv(url)
+    return df
 
-st.title("💰 我的個人資產管理")
+st.title("🔍 系統診斷與資產管理")
 
 try:
-    cash_raw, invest_raw = get_data()
+    # 嘗試讀取資料
+    cash_raw = fetch_raw_data(GID_CASH)
+    invest_raw = fetch_raw_data(GID_INVEST)
 
-    # --- 強力偵錯區：如果還是出錯，這一段會幫我們抓出原因 ---
-    if st.checkbox("顯示原始資料(除錯用)"):
-        st.write("現金分頁前兩列：", cash_raw.head(2))
-        st.write("投資分頁前兩列：", invest_raw.head(2))
+    # --- 診斷面板 ---
+    with st.expander("🛠️ 點擊展開系統診斷資訊"):
+        st.write("現金分頁讀取到的欄位：", list(cash_raw.columns))
+        st.write("投資分頁讀取到的欄位：", list(invest_raw.columns))
+        st.write("現金分頁前兩行數據：", cash_raw.head(2))
+        st.write("投資分頁前兩行數據：", invest_raw.head(2))
 
-    # --- 取得匯率 ---
+    # --- 強制欄位名稱對齊 ---
+    # 如果標題有空格或格式問題，我們強制重新命名
+    def clean_df(df):
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+
+    cash_df = clean_df(cash_raw)
+    invest_df = clean_df(invest_raw)
+
+    # --- 核心邏輯 (簡單化) ---
+    usdtwd = 32.5 # 先給預設值，避免 yfinance 報錯卡住
     try:
         usdtwd = yf.Ticker("USDTWD=X").fast_info['last_price']
     except:
-        usdtwd = 32.5
+        pass
 
-    # --- 處理現金 (根據你的表格順序：第3欄是幣別, 第4欄是金額) ---
-    # 我們不靠名稱，靠「位置」 (iloc)
-    total_cash_twd = 0
-    for i in range(len(cash_raw)):
-        row = cash_raw.iloc[i]
-        curr = str(row.iloc[2]).strip().upper() # 幣別
-        amt = safe_float(row.iloc[3])           # 金額
-        if curr == 'USD':
-            total_cash_twd += amt * usdtwd
-        else:
-            total_cash_twd += amt
-
-    # --- 處理投資 (根據你的表格順序：第2欄是代號, 第4欄是股數, 第5欄是成本, 第6欄是幣別) ---
-    invest_list = []
-    tickers = []
-    
-    for i in range(len(invest_raw)):
-        row = invest_raw.iloc[i]
-        symbol = str(row.iloc[1]).strip() # 代號
-        if symbol and symbol != 'nan':
-            tickers.append(symbol)
-            invest_list.append({
-                "代號": symbol,
-                "名稱": row.iloc[2],
-                "持有股數": safe_float(row.iloc[3]),
-                "買入成本": safe_float(row.iloc[4]),
-                "幣別": str(row.iloc[5]).strip().upper()
-            })
-    
-    # 批次抓取股價
-    prices = {}
-    if tickers:
-        try:
-            p_data = yf.download(tickers, period="1d", progress=False)['Close']
-            if len(tickers) == 1:
-                prices = {tickers[0]: p_data.iloc[-1]}
-            else:
-                prices = p_data.iloc[-1].to_dict()
-        except:
-            pass
-
-    # 計算損益
-    final_invest_df = pd.DataFrame(invest_list)
-    final_invest_df['現價'] = final_invest_df['代號'].map(prices).fillna(final_invest_df['買入成本'])
-    final_invest_df['市值'] = final_invest_df['現價'] * final_invest_df['持有股數']
-    final_invest_df['損益'] = (final_invest_df['現價'] - final_invest_df['買入成本']) * final_invest_df['持有股數']
-
-    total_invest_twd = 0
-    for _, r in final_invest_df.iterrows():
-        m_val = r['市值']
-        if r['幣別'] == 'USD':
-            total_invest_twd += m_val * usdtwd
-        else:
-            total_invest_twd += m_val
-
-    # --- 介面 ---
-    col1, col2, col3 = st.columns(3)
-    col1.metric("總淨資產 (TWD)", f"{total_cash_twd + total_invest_twd:,.0f}")
-    col2.metric("現金資產", f"{total_cash_twd:,.0f}")
-    col3.metric("美金匯率", f"{usdtwd:.2f}")
-
-    st.subheader("📊 投資清單")
-    st.dataframe(final_invest_df, use_container_width=True)
+    # 檢查是否有『代號』欄位
+    if '代號' in invest_df.columns:
+        st.success("✅ 成功找到『代號』欄位！")
+        
+        # 顯示簡單數據
+        st.subheader("💰 現金資產概況")
+        st.table(cash_df)
+        
+        st.subheader("📈 投資清單概況")
+        st.table(invest_df)
+        
+        st.metric("美金匯率參考", f"{usdtwd:.2f}")
+    else:
+        st.error("❌ 依然找不到『代號』欄位")
+        st.write("目前的標題清單為：", list(invest_df.columns))
 
 except Exception as e:
-    st.error(f"偵測到異常，請勾選下方的『顯示原始資料』並截圖給我，這能幫助我修好它。")
-    st.info(f"錯誤代碼: {e}")
+    st.error("🚨 讀取失敗：Google 試算表連線中斷")
+    st.info(f"技術錯誤：{e}")
+    st.markdown("""
+    ### 解決建議：
+    1. **檢查試算表權限**：請再次確認試算表的 **「共用」** 是否設定為 **「知道連結的任何人」** 且為 **「檢視者」**。
+    2. **重新發佈**：在試算表中，點擊 **檔案 > 共用 > 發佈到網路**，選擇 **整個文件** 並格式選 **CSV**。這有助於外部連結讀取。
+    """)
