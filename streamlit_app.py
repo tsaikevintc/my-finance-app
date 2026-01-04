@@ -3,76 +3,50 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 
-# 1. 頁面設定與配色
-st.set_page_config(page_title="AssetPro | 個人資產管理", layout="wide")
+st.set_page_config(page_title="AssetPro", layout="wide")
 
-# 注入自定義 CSS 提升美感
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    div[data-testid="stExpander"] { border: none !important; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    </style>
-    """, unsafe_allow_html=True)
+# 樣式優化
+st.markdown("""<style>
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
+</style>""", unsafe_allow_html=True)
 
-# 你的 Google Sheet 資訊
-SHEET_ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
-GID_CASH = "526580417"
-GID_INVEST = "1335772092"
+S_ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
+G_CASH, G_INV = "526580417", "1335772092"
 
 @st.cache_data(ttl=300)
-def get_all_data():
-    base = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
-    df_cash = pd.read_csv(f"{base}&gid={GID_CASH}")
-    df_invest = pd.read_csv(f"{base}&gid={GID_INVEST}")
-    df_cash.columns = [str(c).strip() for c in df_cash.columns]
-    df_invest.columns = [str(c).strip() for c in df_invest.columns]
-    return df_cash, df_invest
+def load_data():
+    base = f"https://docs.google.com/spreadsheets/d/{S_ID}/export?format=csv"
+    df_c = pd.read_csv(f"{base}&gid={G_CASH}")
+    df_i = pd.read_csv(f"{base}&gid={G_INV}")
+    df_c.columns = df_c.columns.str.strip()
+    df_i.columns = df_i.columns.str.strip()
+    return df_c, df_i
 
 try:
-    cash_df, invest_df = get_all_data()
-    
-    # --- 資料處理與市價抓取 ---
-    with st.spinner('同步全球市價中...'):
-        usdtwd = yf.Ticker("USDTWD=X").fast_info['last_price']
-        tickers = invest_df['代號'].dropna().unique().tolist()
-        price_data = yf.download(tickers, period="1d", progress=False)['Close']
-        prices = price_data.iloc[-1].to_dict() if len(tickers) > 1 else {tickers[0]: price_data.iloc[-1]}
+    c_df, i_df = load_data()
+    with st.spinner('Updating...'):
+        rate = yf.Ticker("USDTWD=X").fast_info['last_price']
+        tkrs = i_df['代號'].dropna().unique().tolist()
+        px_raw = yf.download(tkrs, period="1d", progress=False)['Close']
+        prices = px_raw.iloc[-1].to_dict() if len(tkrs)>1 else {tkrs[0]: px_raw.iloc[-1]}
 
-    # 計算總額
-    total_cash_twd = sum([row['金額'] * (usdtwd if row['幣別'] == 'USD' else 1) for _, row in cash_df.iterrows()])
-    invest_df['現價'] = invest_df['代號'].map(prices).fillna(invest_df['買入成本'])
-    invest_df['市值'] = invest_df['現價'] * invest_df['持有股數']
-    invest_df['損益'] = (invest_df['現價'] - invest_df['買入成本']) * invest_df['持有股數']
-    total_invest_twd = sum([row['市值'] * (usdtwd if row['幣別'] == 'USD' else 1) for _, row in invest_df.iterrows()])
-    total_assets = total_cash_twd + total_invest_twd
+    # 計算
+    c_twd = sum(r['金額'] * (rate if r['幣別']=='USD' else 1) for _, r in c_df.iterrows())
+    i_df['現價'] = i_df['代號'].map(prices).fillna(i_df['買入成本'])
+    i_df['市值'] = i_df['現價'] * i_df['持有股數']
+    i_df['損益'] = (i_df['現價'] - i_df['買入成本']) * i_df['持有股數']
+    i_twd = sum(r['市值'] * (rate if r['幣別']=='USD' else 1) for _, r in i_df.iterrows())
 
-    # --- 介面開始 ---
-    st.title("🛡️ AssetPro 資產管理系統")
-    
-    # 第一層：大指標 (Top Metrics)
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("總淨資產 (TWD)", f"${total_assets:,.0f}")
-    col2.metric("現金資產", f"${total_cash_twd:,.0f}")
-    col3.metric("投資市值", f"${total_invest_twd:,.0f}")
-    col4.metric("即時美金匯率", f"{usdtwd:.2f}")
+    # 介面
+    st.title("🛡️ AssetPro 資產管理")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("總淨資產", f"${c_twd+i_twd:,.0f}")
+    m2.metric("投資市值", f"${i_twd:,.0f}")
+    m3.metric("美金匯率", f"{rate:.2f}")
 
-    st.divider()
-
-    # 第二層：分頁階層式管理 (Tabs)
-    tab1, tab2, tab3 = st.tabs(["📊 資產配置總覽", "💵 現金資產明細", "📈 投資組合分析"])
-
-    with tab1:
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.subheader("資產分佈比率")
-            pie_data = pd.DataFrame({"類別": ["現金", "投資"], "金額": [total_cash_twd, total_invest_twd]})
-            fig = px.pie(pie_data, values='金額', names='類別', hole=0.5, color_discrete_sequence=['#00CC96', '#636EFA'])
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            st.subheader("投資標的佔比")
-            invest_pie = px.pie(invest_df, values='市值', names='名稱', hole=0.5)
-            st.plotly_chart(invest_pie, use_container_width=True)
-
-    with tab2:
-        st.subheader("各帳戶餘
+    t1, t2, t3 = st.tabs(["📊 總覽", "💵 現金", "📈 投資"])
+    with t1:
+        col_a, col_b = st.columns(2)
+        fig1 = px.pie(values=[c_twd, i_twd], names=['現金', '投資'], hole=0.5, title="資產配置")
+        col_a.plotly_chart(fig
