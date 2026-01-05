@@ -1,123 +1,144 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
 
-# 1. 頁面基礎設定
-st.set_page_config(page_title="Insights Asset", layout="wide", initial_sidebar_state="collapsed")
+# 1. 頁面設定
+st.set_page_config(page_title="Asset Insights", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 核心 CSS：打造卡片感與進度條
+# 2. 進階 CSS：環狀百分比圖標與浮動按鈕樣式
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #FFFFFF; }
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     
-    /* 仿 APP 卡片容器 */
-    .asset-card {
-        background-color: #161B22;
-        border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 10px;
-        border-left: 5px solid #58A6FF; /* 側邊裝飾條 */
+    /* 圓餅百分比圖標樣式 */
+    .pie-icon-container {
+        display: flex; align-items: center; justify-content: center;
+        width: 45px; height: 45px; min-width: 45px;
+        border-radius: 50%; position: relative;
+        margin-right: 15px; font-size: 10px; font-weight: bold;
+    }
+    .pie-icon-inner {
+        position: absolute; width: 35px; height: 35px;
+        background-color: #161B22; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
     }
     
-    /* 進度條容器 */
-    .progress-bg {
-        background-color: #30363D;
-        border-radius: 5px;
-        width: 100%;
-        height: 6px;
-        margin-top: 8px;
+    /* 卡片佈局優化 */
+    .custom-card {
+        background-color: #161B22; border-radius: 15px;
+        padding: 15px; margin-bottom: 12px;
+        display: flex; align-items: center; /* 垂直居中 */
+        border: 1px solid #30363D;
     }
-    .progress-fill {
-        height: 6px;
-        border-radius: 5px;
+    .card-info { flex-grow: 1; }
+    .card-title { font-size: 16px; font-weight: 500; }
+    .card-sub { font-size: 12px; color: #8B949E; }
+    .card-value { text-align: right; font-family: 'Inter', sans-serif; font-weight: bold; }
+
+    /* 切換按鈕樣式 */
+    .stButton > button {
+        border-radius: 20px; border: 1px solid #30363D;
+        background-color: #161B22; color: #8B949E;
+        padding: 5px 20px; transition: 0.3s;
     }
-    
-    /* 文字排版 */
-    .item-name { font-size: 16px; font-weight: 500; }
-    .item-value { float: right; font-family: 'Courier New', monospace; }
-    .item-percent { font-size: 12px; color: #8B949E; margin-left: 5px; }
-    
-    /* 隱藏預設元件 */
-    #MainMenu, header, footer { visibility: hidden; }
+    .stButton > button:hover { border-color: #58A6FF; color: white; }
 </style>
 """, unsafe_allow_html=True)
 
-# 讀取資料
+# 模擬歷史數據 (實際上應存於資料庫或試算表)
+@st.cache_data
+def get_history():
+    dates = pd.date_range(start="2025-01-01", periods=30)
+    return pd.DataFrame({
+        "date": dates,
+        "Total": np.cumsum(np.random.randn(30) * 10000) + 1000000,
+        "Cash": np.cumsum(np.random.randn(30) * 2000) + 300000,
+        "Invest": np.cumsum(np.random.randn(30) * 8000) + 700000
+    })
+
+# 初始化 Session State
+if 'view' not in st.session_state: st.session_state.view = 'Total'
+
+# 讀取試算表資料
 ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
 G_C, G_I = "526580417", "1335772092"
 
 @st.cache_data(ttl=60)
-def load_all():
-    url = f"https://docs.google.com/spreadsheets/d/{ID}/export?format=csv"
-    df_c = pd.read_csv(f"{url}&gid={G_C}")
-    df_i = pd.read_csv(f"{url}&gid={G_I}")
+def load_data():
+    base = f"https://docs.google.com/spreadsheets/d/{ID}/export?format=csv"
+    df_c = pd.read_csv(f"{base}&gid={G_C}")
+    df_i = pd.read_csv(f"{base}&gid={G_I}")
     df_c.columns = df_c.columns.str.strip()
     df_i.columns = df_i.columns.str.strip()
     return df_c, df_i
 
 try:
-    c_df, i_df = load_all()
-    with st.spinner('Syncing...'):
-        rate = yf.Ticker("USDTWD=X").fast_info['last_price']
-        tks = i_df['代號'].dropna().unique().tolist()
-        pxs = yf.download(tks, period="1d", progress=False)['Close']
-        p_map = pxs.iloc[-1].to_dict() if len(tks)>1 else {tks[0]: pxs.iloc[-1]}
-
-    # 數據處理
-    c_df['台幣金額'] = c_df.apply(lambda r: r['金額'] * (rate if r['幣別']=='USD' else 1), axis=1)
-    total_cash = c_df['台幣金額'].sum()
+    c_df, i_df = load_data()
+    rate = yf.Ticker("USDTWD=X").fast_info['last_price']
     
-    i_df['現價'] = i_df['代號'].map(p_map).fillna(i_df['買入成本'])
-    i_df['市值TWD'] = i_df.apply(lambda r: (r['現價']*r['持有股數']) * (rate if r['幣別']=='USD' else 1), axis=1)
-    total_inv = i_df['市值TWD'].sum()
+    # 數據計算
+    c_df['TWD'] = c_df.apply(lambda r: r['金額'] * (rate if r['幣別']=='USD' else 1), axis=1)
+    t_cash = c_df['TWD'].sum()
     
-    total_assets = total_cash + total_inv
+    # 抓取投資現價 (僅示範)
+    tks = i_df['代號'].dropna().unique().tolist()
+    prices = yf.download(tks, period="1d", progress=False)['Close'].iloc[-1].to_dict()
+    i_df['市值TWD'] = i_df.apply(lambda r: (prices.get(r['代號'], r['買入成本'])*r['持有股數']) * (rate if r['幣別']=='USD' else 1), axis=1)
+    t_inv = i_df['市值TWD'].sum()
+    
+    total = t_cash + t_inv
 
-    # --- UI 呈現 ---
-    st.markdown("<h2 style='text-align:center;'>我的淨資產</h2>", unsafe_allow_html=True)
-    st.markdown(f"<h1 style='text-align:center; color:#58A6FF;'>$ {total_assets:,.0f}</h1>", unsafe_allow_html=True)
+    # --- UI 頂部：切換按鈕 ---
+    st.markdown("<h3 style='text-align: center;'>Insights</h3>", unsafe_allow_html=True)
+    btn_col = st.columns([1,1,1])
+    if btn_col[0].button("✨ 淨資產", use_container_width=True): st.session_state.view = 'Total'
+    if btn_col[1].button("💵 流動資金", use_container_width=True): st.session_state.view = 'Cash'
+    if btn_col[2].button("📈 投資組合", use_container_width=True): st.session_state.view = 'Invest'
+
+    # --- 折線圖區域 ---
+    hist_df = get_history()
+    view_map = {'Total': ('Total', '#58A6FF', '總淨資產'), 'Cash': ('Cash', '#39FF14', '流動資金'), 'Invest': ('Invest', '#FF007A', '投資組合')}
+    key, color, label = view_map[st.session_state.view]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=hist_df['date'], y=hist_df[key], mode='lines', 
+                             line=dict(color=color, width=3), fill='tozeroy',
+                             fillcolor=f'rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.1)'))
+    fig.update_layout(height=250, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', 
+                      plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False), yaxis=dict(showgrid=False, visible=False))
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    st.markdown(f"<h1 style='text-align: center;'>$ {total if key=='Total' else (t_cash if key=='Cash' else t_inv):,.0f}</h1>", unsafe_allow_html=True)
+
+    # --- 下方卡片區域：帶圓餅百分比 ---
+    def render_card(name, sub, val, pct, color):
+        st.markdown(f"""
+        <div class="custom-card">
+            <div class="pie-icon-container" style="background: conic-gradient({color} {pct*3.6}deg, #30363D 0deg);">
+                <div class="pie-icon-inner">{int(pct)}%</div>
+            </div>
+            <div class="card-info">
+                <div class="card-title">{name}</div>
+                <div class="card-sub">{sub}</div>
+            </div>
+            <div class="card-value">$ {val:,.0f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.session_state.view == 'Cash' or st.session_state.view == 'Total':
+        st.subheader("🏦 資金明細")
+        for _, r in c_df.iterrows():
+            render_card(r['大項目'], r['附註'], r['TWD'], (r['TWD']/t_cash*100), "#39FF14")
 
-    # A. 流動資金摺疊面板
-    with st.expander(f"🏦 流動資金 (佔 {(total_cash/total_assets*100):.1f}%)", expanded=False):
-        st.markdown(f"### 總額: $ {total_cash:,.0f}")
-        for _, row in c_df.iterrows():
-            pct = (row['台幣金額'] / total_cash) * 100
-            st.markdown(f"""
-                <div class="asset-card" style="border-left-color: #39FF14;">
-                    <span class="item-name">{row['大項目']}</span>
-                    <span class="item-value">$ {row['台幣金額']:,.0f}</span>
-                    <div class="item-percent">{pct:.1f}%</div>
-                    <div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: #39FF14;"></div></div>
-                </div>
-            """, unsafe_allow_html=True)
-
-    # B. 投資部位摺疊面板
-    with st.expander(f"📈 投資組合 (佔 {(total_inv/total_assets*100):.1f}%)", expanded=False):
-        st.markdown(f"### 總額: $ {total_inv:,.0f}")
-        # 依市值排序
-        i_sorted = i_df.sort_values('市值TWD', ascending=False)
-        for _, row in i_sorted.iterrows():
-            pct = (row['市值TWD'] / total_inv) * 100
-            # 根據損益決定顏色
-            profit_color = "#00FF7F" if (row['現價'] - row['買入成本']) >= 0 else "#FF4B4B"
-            st.markdown(f"""
-                <div class="asset-card" style="border-left-color: {profit_color};">
-                    <span class="item-name">{row['名稱']} ({row['代號']})</span>
-                    <span class="item-value">$ {row['市值TWD']:,.0f}</span>
-                    <div class="item-percent">{pct:.1f}% ‧ 股數: {row['持有股數']}</div>
-                    <div class="progress-bg"><div class="progress-fill" style="width: {pct}%; background-color: {profit_color};"></div></div>
-                </div>
-            """, unsafe_allow_html=True)
-
-    # C. 視覺化分析 (保留圓餅圖供快速參考)
-    st.markdown("---")
-    tabs = st.tabs(["資產分配", "持股比例"])
-    with tabs[0]:
-        fig = px.pie(values=[total_cash, total_inv], names=['現金', '投資'], hole=0.6, color_discrete_sequence=['#39FF14', '#58A6FF'])
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+    if st.session_state.view == 'Invest' or st.session_state.view == 'Total':
+        st.subheader("🚀 投資表現")
+        for _, r in i_df.iterrows():
+            render_card(r['名稱'], r['代號'], r['市值TWD'], (r['市值TWD']/t_inv*100), "#58A6FF")
 
 except Exception as e:
-    st.error(f"資料讀取錯誤: {e}")
+    st.error(f"Error: {e}")
