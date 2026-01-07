@@ -7,60 +7,60 @@ from datetime import datetime, timedelta
 # 1. 頁面設定
 st.set_page_config(page_title="Insights", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 深度客製化 CSS (解決手機換行問題)
+# 2. 深度客製化 CSS
 st.markdown("""
 <style>
-    .stApp { background-color: #0B0E14; color: #FFFFFF; font-family: 'Inter', sans-serif; }
-    .block-container { padding: 1rem 1rem !important; }
-
-    /* 金額與膠囊按鈕的強制橫排容器 */
-    .header-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        width: 100%;
-        margin-top: 10px;
+    /* 鎖定寬度，禁止手機左右滑動 */
+    html, body, [data-testid="stAppViewContainer"] {
+        overflow-x: hidden !important;
+        width: 100vw !important;
     }
-    .total-title { font-size: 32px; font-weight: 700; color: #FFFFFF; flex-shrink: 0; }
+    .block-container { padding: 1rem 1rem !important; max-width: 100vw !important; overflow: hidden !important; }
 
-    /* 強制按鈕容器橫排且不縮放 */
+    .stApp { background-color: #0B0E14; color: #FFFFFF; font-family: 'Inter', sans-serif; }
+
+    /* 頂部金額 */
+    .total-title { font-size: 34px; font-weight: 700; color: #FFFFFF; }
+    
+    /* 強制按鈕橫排並靠攏 */
     [data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
-        gap: 4px !important;
+        gap: 6px !important; /* 按鈕間的距離 */
+        justify-content: flex-end !important;
+        margin-top: -52px; /* 將按鈕拉到與金額平齊 */
     }
 
-    /* 膠囊按鈕樣式微縮 */
+    /* 膠囊按鈕樣式 */
     div.stButton > button {
         border-radius: 20px !important;
         border: none !important;
         height: 22px !important;
-        width: 45px !important;
-        min-width: 45px !important;
+        width: 48px !important;
+        min-width: 48px !important;
         background-color: #1C212B !important;
         color: #9CA3AF !important;
-        font-size: 9px !important;
+        font-size: 10px !important;
         padding: 0px !important;
         transition: 0.3s;
     }
-    div.stButton > button:focus { background-color: #00F2FE !important; color: #000 !important; }
-
-    /* 盈虧文字 */
-    .profit-row { font-size: 12px; color: #9CA3AF; margin: 5px 0 15px 2px; }
-    .pos { color: #00F2FE; font-weight: 600; }
-    .neg { color: #FF4D4D; font-weight: 600; }
-
-    /* 時間區段 (橫排緊湊) */
-    .time-bar-wrap [data-testid="stHorizontalBlock"] .stButton > button {
-        background: transparent !important;
-        width: auto !important;
-        min-width: 30px !important;
-        font-size: 11px !important;
-        color: #6B7280 !important;
+    div.stButton > button:focus, div.stButton > button:active { 
+        background-color: #00F2FE !important; color: #000 !important; 
     }
 
-    /* 資產卡片復原 */
+    /* 盈虧與線圖 */
+    .profit-row { font-size: 12px; color: #9CA3AF; margin: 8px 0 15px 2px; }
+    .pos { color: #00F2FE; font-weight: 600; }
+    .neg { color: #FF4D4D; font-weight: 600; }
+    
+    .time-bar [data-testid="stHorizontalBlock"] {
+        margin-top: -15px !important;
+        justify-content: space-between !important;
+    }
+    .time-bar button { background: transparent !important; width: auto !important; min-width: 32px !important; }
+
+    /* 卡片設計 */
     .section-header { font-size: 14px; font-weight: 600; color: #9CA3AF; margin: 20px 0 10px 5px; display: flex; align-items: center; }
     .dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
     .custom-card {
@@ -72,13 +72,13 @@ st.markdown("""
     .card-sub { font-size: 11px; color: #6B7280; }
     .card-value { text-align: right; font-weight: 600; font-size: 15px; }
 
-    /* 圓環圖標 */
+    /* 佔比圓環 */
     .pie-icon-container {
-        width: 36px; height: 36px; min-width: 36px; border-radius: 50%;
+        width: 34px; height: 34px; min-width: 34px; border-radius: 50%;
         position: relative; display: flex; align-items: center; justify-content: center;
     }
     .pie-icon-inner {
-        position: absolute; width: 28px; height: 28px; background-color: #161B22;
+        position: absolute; width: 26px; height: 26px; background-color: #161B22;
         border-radius: 50%; display: flex; align-items: center; justify-content: center;
         font-size: 8px; font-weight: bold;
     }
@@ -87,7 +87,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 3. 資料來源與加載
+# 3. 資料來源
 ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
 G_C, G_I, G_H = "526580417", "1335772092", "857913551"
 
@@ -98,81 +98,34 @@ def load_all():
     for df in [c, i, h]: df.columns = df.columns.str.strip()
     return c, i, h
 
+# --- 主程式邏輯 ---
 try:
     c_df, i_df, h_df = load_all()
     rate = 32.5
     
-    # 計算即時資產
+    # 計算
     c_df['TWD'] = c_df.apply(lambda r: float(r['金額']) * (rate if r['幣別']=='USD' else 1), axis=1)
     total_cash = c_df['TWD'].sum()
     total_inv = 81510 
     total_assets = total_cash + total_inv
 
-    # --- 4. 頂部佈局：金額與右側膠囊 (改用自定義容器解決距離與寬度問題) ---
-if 'view' not in st.session_state: st.session_state.view = 'Total'
-v_map = {'Total': total_assets, 'Cash': total_cash, 'Invest': total_inv}
-curr_val = v_map[st.session_state.view]
+    # A. 頂部佈局
+    if 'view' not in st.session_state: st.session_state.view = 'Total'
+    v_map = {'Total': total_assets, 'Cash': total_cash, 'Invest': total_inv}
+    curr_val = v_map[st.session_state.view]
 
-# 核心修正：使用 HTML 封裝金額與按鈕，確保按鈕緊貼且不換行
-st.markdown(f"""
-    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 10px; width: 100%; overflow: hidden;">
-        <div class='total-title'>$ {curr_val:,.0f}</div>
-        <div style="display: flex; gap: 6px;">
-            <div id="btn-total"></div>
-            <div id="btn-cash"></div>
-            <div id="btn-invest"></div>
-        </div>
-    </div>
-""", unsafe_allow_html=True)
+    # 金額顯示
+    st.markdown(f"<div class='total-title'>$ {curr_val:,.0f}</div>", unsafe_allow_html=True)
+    
+    # 按鈕列 (透過 CSS margin-top 移到金額右側)
+    _, btn_area = st.columns([1, 1.2])
+    with btn_area:
+        b_cols = st.columns(3)
+        if b_cols[0].button("總覽"): st.session_state.view = 'Total'
+        if b_cols[1].button("現金"): st.session_state.view = 'Cash'
+        if b_cols[2].button("投資"): st.session_state.view = 'Invest'
 
-# 為了讓按鈕仍有 Streamlit 功能，我們使用 columns 並透過 CSS 強制縮排
-btn_col1, btn_col2 = st.columns([1, 1.2]) # 縮小按鈕區的佔比
-with btn_col2:
-    # 這裡我們將按鈕放在一個緊湊的 row 中
-    b_cols = st.columns([1, 1, 1])
-    if b_cols[0].button("總覽"): st.session_state.view = 'Total'
-    if b_cols[1].button("現金"): st.session_state.view = 'Cash'
-    if b_cols[2].button("投資"): st.session_state.view = 'Invest'
-
-# 強制修正 CSS：鎖定螢幕寬度，禁止左右滑動
-st.markdown("""
-<style>
-    /* 1. 禁止左右滑動並鎖定寬度 */
-    html, body, [data-testid="stAppViewContainer"] {
-        overflow-x: hidden !important;
-        width: 100vw !important;
-    }
-    .block-container {
-        max-width: 100% !important;
-        overflow: hidden !important;
-    }
-
-    /* 2. 移除 st.columns 的巨大間距 (這是導致按鈕過遠的主因) */
-    [data-testid="column"] {
-        width: auto !important;
-        flex: unset !important;
-        min-width: unset !important;
-    }
-    [data-testid="stHorizontalBlock"] {
-        gap: 8px !important; /* 這裡控制膠囊之間的距離 */
-        justify-content: flex-end !important;
-        margin-top: -55px; /* 這裡控制按鈕相對於數字的高度對齊 */
-    }
-
-    /* 3. 精細調整按鈕樣式 */
-    div.stButton > button {
-        border-radius: 20px !important;
-        height: 22px !important;
-        width: 50px !important; /* 稍微增加寬度確保文字不換行 */
-        font-size: 10px !important;
-        padding: 0px 4px !important;
-        background-color: #1C212B !important;
-        border: none !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-    # 5. 盈虧計算
+    # B. 盈虧
     h_df['Date'] = pd.to_datetime(h_df['Date'], format='mixed', errors='coerce').dropna()
     h_df = h_df.sort_values('Date')
     hist_vals = h_df[st.session_state.view].tolist()
@@ -186,7 +139,7 @@ st.markdown("""
         </div>
     """, unsafe_allow_html=True)
 
-    # 6. 線圖
+    # C. 線圖
     if 'range' not in st.session_state: st.session_state.range = 'ALL'
     ranges = {'7D':7, '1M':30, '3M':90, '6M':180, 'YTD':365, '1Y':365, 'ALL':9999}
     cutoff = datetime.now() - timedelta(days=ranges[st.session_state.range])
@@ -206,14 +159,14 @@ st.markdown("""
     )
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # 7. 時間橫排
-    st.markdown('<div class="time-bar-wrap">', unsafe_allow_html=True)
+    # D. 時間切換
+    st.markdown('<div class="time-bar">', unsafe_allow_html=True)
     t_cols = st.columns(7)
     for i, r in enumerate(ranges.keys()):
         if t_cols[i].button(r): st.session_state.range = r
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # 8. 卡片渲染
+    # E. 卡片列表
     def render_row(name, sub, val, pct, color):
         p_bg = f"conic-gradient({color} {pct*3.6}deg, #2D3139 0deg)"
         st.markdown(f"""
@@ -229,7 +182,6 @@ st.markdown("""
             </div>
         """, unsafe_allow_html=True)
 
-    # 9. 明細列表
     st.markdown("<br>", unsafe_allow_html=True)
     if st.session_state.view in ['Total', 'Cash']:
         st.markdown("<div class='section-header'><span class='dot' style='background:#00F2FE'></span>資產</div>", unsafe_allow_html=True)
@@ -243,4 +195,4 @@ st.markdown("""
             render_row(r['名稱'], f"{r['類別']} ‧ {r['代號']}", m_val, (m_val/total_inv*100 if total_inv>0 else 0), "#FFD700")
 
 except Exception as e:
-    st.error(f"系統運行錯誤: {e}")
+    st.error(f"Error: {e}")
