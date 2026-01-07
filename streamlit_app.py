@@ -3,10 +3,10 @@ import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 
-# 1. 頁面設定
+# 1. 頁面設定與 APP 質感優化
 st.set_page_config(page_title="Insights Asset", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 進階 CSS
+# 2. 進階 CSS：打造仿 APP 的深色 UI
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #FFFFFF; }
@@ -48,7 +48,7 @@ def fix_ticker(t):
     if 'BTCUSD' in t: return 'BTC-USD'
     return t
 
-# 4. 資料讀取
+# 4. 資料來源設定
 ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
 G_C, G_I, G_H = "526580417", "1335772092", "857913551"
 
@@ -65,17 +65,17 @@ def load_all_data():
 try:
     c_df, i_df, h_df = load_all_data()
     
-    # 取得匯率與股價 (增加安全檢查)
+    # 取得匯率與股價
     try:
         rate = yf.Ticker("USDTWD=X").fast_info.get('last_price', 32.5)
     except:
         rate = 32.5
     
-    # 計算現金 [cite: 3]
+    # 計算現金
     c_df['TWD'] = c_df.apply(lambda r: float(r['金額']) * (rate if r.get('幣別')=='USD' else 1), axis=1)
     total_cash = c_df['TWD'].sum()
     
-    # 計算投資 
+    # 計算投資市值
     i_df['yf_ticker'] = i_df['代號'].apply(fix_ticker)
     tks = i_df['yf_ticker'].unique().tolist()
     
@@ -84,18 +84,17 @@ try:
         data = yf.download(tks, period="1d", progress=False)['Close']
         for t in tks:
             try:
-                # 預防 index out of bounds
                 val = data[t].iloc[-1] if isinstance(data, pd.DataFrame) else data.iloc[-1]
-                if pd.isna(val): val = 0
+                if pd.isna(val) or val == 0: val = 0
                 prices[t] = val
             except:
                 prices[t] = 0
 
-    i_df['市值TWD'] = i_df.apply(lambda r: (prices.get(r['yf_ticker'], r['買入成本']) * r['持有股數']) * (rate if r.get('幣別')=='USD' else 1), axis=1)
+    i_df['市值TWD'] = i_df.apply(lambda r: (prices.get(r['yf_ticker'], r.get('買入成本', 0)) * r['持有股數']) * (rate if r.get('幣別')=='USD' else 1), axis=1)
     total_inv = i_df['市值TWD'].sum()
     total_assets = total_cash + total_inv
 
-    # --- UI 視圖切換 ---
+    # --- UI: 頂部視圖切換 ---
     if 'view' not in st.session_state: st.session_state.view = 'Total'
     st.markdown("<h3 style='text-align: center; margin-bottom: 10px;'>Insights</h3>", unsafe_allow_html=True)
     b1, b2, b3 = st.columns(3)
@@ -103,26 +102,48 @@ try:
     if b2.button("💵 流動資金", use_container_width=True): st.session_state.view = 'Cash'
     if b3.button("📈 投資組合", use_container_width=True): st.session_state.view = 'Invest'
 
-    # --- 折線圖  ---
+    # --- UI: 折線圖 (修正日期格式問題) ---
     v_conf = {'Total': ('Total', '#60A5FA'), 'Cash': ('Cash', '#34D399'), 'Invest': ('Invest', '#F472B6')}
     col_name, theme_color = v_conf[st.session_state.view]
     
     if not h_df.empty and col_name in h_df.columns:
-        h_df['Date'] = pd.to_datetime(h_df['Date'])
+        # 使用 format='mixed' 自動解析包含「上午/下午」的日期字串
+        h_df['Date'] = pd.to_datetime(h_df['Date'], format='mixed', errors='coerce')
+        h_df = h_df.dropna(subset=['Date']).sort_values('Date')
+        
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=h_df['Date'], y=h_df[col_name], mode='lines', line=dict(color=theme_color, width=3), fill='tozeroy', fillcolor=f'rgba({int(theme_color[1:3],16)},{int(theme_color[3:5],16)},{int(theme_color[5:7],16)},0.1)'))
-        fig.update_layout(height=220, margin=dict(l=10,r=10,t=10,b=10), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False), yaxis=dict(visible=False))
+        fig.add_trace(go.Scatter(
+            x=h_df['Date'], y=h_df[col_name], mode='lines', 
+            line=dict(color=theme_color, width=3),
+            fill='tozeroy',
+            fillcolor=f'rgba({int(theme_color[1:3],16)},{int(theme_color[3:5],16)},{int(theme_color[5:7],16)},0.1)'
+        ))
+        fig.update_layout(
+            height=220, margin=dict(l=10,r=10,t=10,b=10),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(showgrid=False, color='#4B5563'),
+            yaxis=dict(showgrid=False, visible=False)
+        )
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.info("歷史數據累積中...")
 
+    # 顯示主金額
     display_val = total_assets if col_name=='Total' else (total_cash if col_name=='Cash' else total_inv)
     st.markdown(f"<h1 style='text-align:center; margin-top:-25px;'>$ {display_val:,.0f}</h1>", unsafe_allow_html=True)
 
+    # --- 渲染卡片 ---
     def render_item(name, sub, val, pct, color):
         pie_bg = f"conic-gradient({color} {pct*3.6}deg, #374151 0deg)"
         st.markdown(f"""
         <div class="custom-card">
-            <div class="pie-icon-container" style="background: {pie_bg};"><div class="pie-icon-inner">{int(pct)}%</div></div>
-            <div class="card-info"><div class="card-title">{name}</div><div class="card-sub">{sub}</div></div>
+            <div class="pie-icon-container" style="background: {pie_bg};">
+                <div class="pie-icon-inner">{int(pct)}%</div>
+            </div>
+            <div class="card-info">
+                <div class="card-title">{name}</div>
+                <div class="card-sub">{sub}</div>
+            </div>
             <div class="card-value">$ {val:,.0f}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -135,7 +156,8 @@ try:
 
     if st.session_state.view in ['Total', 'Invest']:
         st.write("🚀 投資組合")
-        for _, r in i_df.sort_values('市值TWD', ascending=False).iterrows():
+        i_sorted = i_df.sort_values('市值TWD', ascending=False)
+        for _, r in i_sorted.iterrows():
             render_item(r['名稱'], r['代號'], r['市值TWD'], (r['市值TWD']/total_inv*100 if total_inv>0 else 0), "#60A5FA")
 
 except Exception as e:
