@@ -108,21 +108,69 @@ try:
     total_inv = 81510 
     total_assets = total_cash + total_inv
 
-    # 4. 頂部佈局：金額與右側膠囊並排
-    if 'view' not in st.session_state: st.session_state.view = 'Total'
-    v_map = {'Total': total_assets, 'Cash': total_cash, 'Invest': total_inv}
-    curr_val = v_map[st.session_state.view]
+    # --- 4. 頂部佈局：金額與右側膠囊 (改用自定義容器解決距離與寬度問題) ---
+if 'view' not in st.session_state: st.session_state.view = 'Total'
+v_map = {'Total': total_assets, 'Cash': total_cash, 'Invest': total_inv}
+curr_val = v_map[st.session_state.view]
 
-    # 使用 columns 但透過 CSS 強制不換行
-    head_left, head_right = st.columns([1.5, 1])
-    with head_left:
-        st.markdown(f"<div class='total-title'>$ {curr_val:,.0f}</div>", unsafe_allow_html=True)
-    with head_right:
-        st.write("") # 微調對齊
-        b_cols = st.columns(3)
-        if b_cols[0].button("總覽"): st.session_state.view = 'Total'
-        if b_cols[1].button("現金"): st.session_state.view = 'Cash'
-        if b_cols[2].button("投資"): st.session_state.view = 'Invest'
+# 核心修正：使用 HTML 封裝金額與按鈕，確保按鈕緊貼且不換行
+st.markdown(f"""
+    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 10px; width: 100%; overflow: hidden;">
+        <div class='total-title'>$ {curr_val:,.0f}</div>
+        <div style="display: flex; gap: 6px;">
+            <div id="btn-total"></div>
+            <div id="btn-cash"></div>
+            <div id="btn-invest"></div>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
+
+# 為了讓按鈕仍有 Streamlit 功能，我們使用 columns 並透過 CSS 強制縮排
+btn_col1, btn_col2 = st.columns([1, 1.2]) # 縮小按鈕區的佔比
+with btn_col2:
+    # 這裡我們將按鈕放在一個緊湊的 row 中
+    b_cols = st.columns([1, 1, 1])
+    if b_cols[0].button("總覽"): st.session_state.view = 'Total'
+    if b_cols[1].button("現金"): st.session_state.view = 'Cash'
+    if b_cols[2].button("投資"): st.session_state.view = 'Invest'
+
+# 強制修正 CSS：鎖定螢幕寬度，禁止左右滑動
+st.markdown("""
+<style>
+    /* 1. 禁止左右滑動並鎖定寬度 */
+    html, body, [data-testid="stAppViewContainer"] {
+        overflow-x: hidden !important;
+        width: 100vw !important;
+    }
+    .block-container {
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    /* 2. 移除 st.columns 的巨大間距 (這是導致按鈕過遠的主因) */
+    [data-testid="column"] {
+        width: auto !important;
+        flex: unset !important;
+        min-width: unset !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        gap: 8px !important; /* 這裡控制膠囊之間的距離 */
+        justify-content: flex-end !important;
+        margin-top: -55px; /* 這裡控制按鈕相對於數字的高度對齊 */
+    }
+
+    /* 3. 精細調整按鈕樣式 */
+    div.stButton > button {
+        border-radius: 20px !important;
+        height: 22px !important;
+        width: 50px !important; /* 稍微增加寬度確保文字不換行 */
+        font-size: 10px !important;
+        padding: 0px 4px !important;
+        background-color: #1C212B !important;
+        border: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
     # 5. 盈虧計算
     h_df['Date'] = pd.to_datetime(h_df['Date'], format='mixed', errors='coerce').dropna()
