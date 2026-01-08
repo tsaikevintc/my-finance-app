@@ -1,58 +1,44 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 
 # 1. 頁面設定
 st.set_page_config(page_title="Insights", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 質感 CSS：鎖定電氣青配色、修正字體、封殺白色
+# 2. 質感 CSS
 st.markdown("""
 <style>
-    /* 全域背景深色 */
     [data-testid="stAppViewContainer"], .stApp { background-color: #0B0E14 !important; }
     .block-container { padding: 1.5rem 1.2rem !important; }
 
-    /* 大數字樣式 */
     .total-title { font-size: 42px; font-weight: 700; color: #FFFFFF !important; margin-bottom: 5px; letter-spacing: -1px; }
     .profit-row { font-size: 13px; color: #8B949E !important; margin-bottom: 20px; }
     .pos { color: #00F2FE !important; font-weight: 600; }
     .neg { color: #FF4D4D !important; font-weight: 600; }
 
-    /* --- 下方時間區間膠囊 (電氣青配色) --- */
-    div[data-testid="stSegmentedControl"] { 
-        background-color: transparent !important; 
-        margin-top: 10px !important;
-    }
+    /* 下方區間膠囊 (電氣青配色) */
+    div[data-testid="stSegmentedControl"] { background-color: transparent !important; margin-top: 10px !important; }
     div[data-testid="stSegmentedControl"] button {
-        background-color: #1C212B !important; 
-        color: #9CA3AF !important; 
-        border: 1px solid #30363D !important;
-        border-radius: 10px !important;
-        min-height: 30px !important;
-        font-size: 11px !important;
-        box-shadow: none !important;
+        background-color: #1C212B !important; color: #9CA3AF !important; 
+        border: 1px solid #30363D !important; border-radius: 10px !important;
+        min-height: 30px !important; font-size: 11px !important;
     }
-    /* 選中狀態：電氣青邊框與發光感 */
     div[data-testid="stSegmentedControl"] button[aria-checked="true"] {
         background-color: rgba(0, 242, 254, 0.1) !important;
-        color: #00F2FE !important;
-        border: 1px solid #00F2FE !important;
-        font-weight: 700 !important;
+        color: #00F2FE !important; border: 1px solid #00F2FE !important; font-weight: 700 !important;
     }
 
-    /* 卡片字體修復：確保亮白 */
-    .section-header { font-size: 14px; color: #8B949E; margin: 25px 0 12px 5px; font-weight: 600; }
+    /* 卡片樣式 */
     .card-container { background: #161B22; border-radius: 14px; padding: 14px; margin-bottom: 12px; border: 1px solid #1F2937; display: flex; align-items: center; }
     .card-title { font-size: 15px; font-weight: 600; color: #FFFFFF !important; }
     .card-sub { font-size: 11px; color: #8B949E !important; }
     .card-value { font-size: 16px; font-weight: 700; color: #FFFFFF !important; text-align: right; flex-grow: 1; }
-
+    
     #MainMenu, header, footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. 數據讀取
+# 3. 數據讀取與日期修復
 ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
 G_C, G_I, G_H = "526580417", "1335772092", "857913551"
 
@@ -63,30 +49,35 @@ def fetch_data():
     i = pd.read_csv(f"{base}&gid={G_I}")
     h = pd.read_csv(f"{base}&gid={G_H}")
     for df in [c, i, h]: df.columns = df.columns.str.strip()
+    
+    # --- 修正日期解析錯誤 ---
+    # 使用 errors='coerce' 處理不一致的日期格式
+    h['Date'] = pd.to_datetime(h['Date'], errors='coerce')
+    h = h.dropna(subset=['Date']).sort_values('Date')
     return c, i, h
 
 try:
     c_df, i_df, h_df = fetch_data()
     rate = 32.5
 
-    # --- 計算最新淨資產 ---
+    # 計算當前即時淨資產
     c_df['TWD'] = c_df.apply(lambda r: float(r['金額']) * (rate if r['幣別']=='USD' else 1), axis=1)
     current_cash = c_df['TWD'].sum()
-    current_inv = 81510 # 依據您的投資數據
+    current_inv = 81510 # 假設的投資固定值，或從 i_df 計算
     latest_net_worth = current_cash + current_inv
 
-    # --- 盈虧計算核心 (您要求的邏輯) ---
-    # 歷史紀錄
-    h_df['Date'] = pd.to_datetime(h_df['Date'])
-    h_df = h_df.sort_values('Date')
-    hist_list = h_df['Total'].dropna().tolist()
+    # --- 盈虧計算 (校對版) ---
+    hist_list = h_df['Total'].tolist()
+    
+    if len(hist_list) >= 1:
+        # 全部時間 = 最新 - 歷史第一筆 (2025/07/01)
+        diff_all = latest_net_worth - hist_list[0]
+        # 日盈虧 = 最新 - 歷史最後一筆 (昨日 2026/01/06)
+        diff_today = latest_net_worth - hist_list[-1]
+    else:
+        diff_all = diff_today = 0
 
-    # 全部時間盈虧 = 最新 - 第一筆 (2025/07/01)
-    diff_all = latest_net_worth - hist_list[0] if hist_list else 0
-    # 日盈虧 = 最新 - 最後一筆 (昨日 2026/01/06)
-    diff_today = latest_net_worth - hist_list[-1] if hist_list else 0
-
-    # 4. 渲染頂部區域
+    # 4. 渲染介面
     st.markdown(f"<div class='total-title'>$ {latest_net_worth:,.0f}</div>", unsafe_allow_html=True)
 
     def fmt(v):
@@ -94,13 +85,9 @@ try:
         prefix = "+" if v >= 0 else ""
         return f'<span class="{color}">{prefix}{v:,.0f}</span>'
 
-    st.markdown(f"""
-        <div class="profit-row">
-            {fmt(diff_all)} 全部時間 ‧ 今日 {fmt(diff_today)}
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f'<div class="profit-row">{fmt(diff_all)} 全部時間 ‧ 今日 {fmt(diff_today)}</div>', unsafe_allow_html=True)
 
-    # --- 圖表 ---
+    # 圖表
     fig = go.Figure(go.Scatter(
         x=h_df['Date'], y=h_df['Total'],
         mode='lines', line=dict(color='#00F2FE', width=3),
@@ -109,13 +96,11 @@ try:
     fig.update_layout(height=180, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # --- 下方區間膠囊 (電氣青配色) ---
-    st.segmented_control(
-        "Range", ["7D", "1M", "3M", "6M", "YTD", "1Y", "ALL"], default="ALL", label_visibility="collapsed"
-    )
+    # 時間區間膠囊
+    st.segmented_control("Range", ["7D", "1M", "3M", "6M", "YTD", "1Y", "ALL"], default="ALL", label_visibility="collapsed")
 
-    # --- 資產卡片 (文字亮白修正) ---
-    st.markdown("<div class='section-header'>● 現金資產</div>", unsafe_allow_html=True)
+    # 資產列表
+    st.markdown("<div style='color:#8B949E; font-size:14px; margin:20px 5px;'>● 現金資產</div>", unsafe_allow_html=True)
     for _, r in c_df.iterrows():
         st.markdown(f"""
             <div class="card-container">
