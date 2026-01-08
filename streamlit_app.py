@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 # 1. 頁面設定
 st.set_page_config(page_title="Wealth Insights", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 數據讀取 (保持原有修復過的邏輯)
+# 2. 數據讀取
 @st.cache_data(ttl=60)
 def fetch_data():
     ID = "1DLRxWZmQhSzmjCOOvv-cCN3BeChb94sD6rFHimuXjs4"
@@ -19,54 +19,62 @@ def fetch_data():
     h = h.dropna(subset=['Date']).sort_values('Date')
     return c, h
 
-# 3. 頂級美學 CSS (配色與反應優化)
+# 3. 終極 CSS (針對白色區塊的深度封鎖)
 st.markdown("""
 <style>
-    /* 全域背景：更深的黑炭色 */
-    [data-testid="stAppViewContainer"] { background-color: #050505 !important; }
+    /* 全域極致黑背景 */
+    [data-testid="stAppViewContainer"], .stApp { background-color: #050505 !important; }
     .block-container { padding: 1.2rem 1.2rem !important; }
 
-    /* 徹底封殺 st.pills 的所有白色背景 */
-    div[data-testid="stPills"], div[data-testid="stPills"] > div {
+    /* --- 徹底封殺 st.pills 的白色區塊 (對抗行動端底座) --- */
+    div[data-testid="stPills"], 
+    div[data-testid="stPills"] > div,
+    [data-testid="stPills"] fieldset {
         background-color: transparent !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
         display: flex !important;
         flex-direction: row !important;
         overflow-x: auto !important;
         white-space: nowrap !important;
         gap: 6px !important;
-        padding: 4px 0 !important;
+        padding: 0 !important;
     }
+    
+    /* 隱藏捲軸 */
     div[data-testid="stPills"]::-webkit-scrollbar { display: none; }
 
-    /* 膠囊外觀：低調奢華配色 */
+    /* 膠囊按鈕：低調灰底 */
     div[data-testid="stPills"] button {
         background-color: #1A1A1A !important;
-        color: #707070 !important;
-        border: 1px solid #2A2A2A !important;
+        color: #888888 !important;
+        border: 1px solid #252525 !important;
         border-radius: 8px !important;
         padding: 4px 14px !important;
-        transition: all 0.2s ease;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        flex-shrink: 0 !important;
     }
 
-    /* 選中狀態：電氣青與柔和光暈 */
+    /* 選中狀態：電氣青與柔和光效 */
     div[data-testid="stPills"] button[aria-checked="true"] {
-        background-color: rgba(0, 242, 254, 0.08) !important;
+        background-color: rgba(0, 242, 254, 0.1) !important;
         color: #00F2FE !important;
         border: 1px solid #00F2FE !important;
         font-weight: 600 !important;
     }
 
     /* 數值美化 */
-    .total-title { font-size: 42px; font-weight: 800; color: #FFFFFF !important; letter-spacing: -1px; }
-    .profit-row { font-size: 13px; color: #666666 !important; margin-bottom: 20px; }
+    .total-title { font-size: 42px; font-weight: 800; color: #FFFFFF !important; letter-spacing: -1.5px; margin-bottom: -5px; }
+    .profit-row { font-size: 13px; color: #555555 !important; margin-bottom: 20px; }
     
-    /* 卡片美化：微導角與質感邊框 */
+    /* 卡片與標題 */
     .asset-card {
         background: #111111;
-        border-radius: 14px;
+        border-radius: 12px;
         padding: 16px;
         margin-bottom: 12px;
-        border: 1px solid #1F1F1F;
+        border: 1px solid #1A1A1A;
         display: flex;
         align-items: center;
     }
@@ -79,20 +87,20 @@ try:
     c_df, h_df = fetch_data()
     rate = 32.5
 
-    # 4. 計算總額
+    # 4. 計算金額
     c_df['TWD'] = c_df.apply(lambda r: float(r['金額']) * (rate if r['幣別']=='USD' else 1), axis=1)
     t_total = c_df['TWD'].sum() + 829010 
 
-    # 5. 渲染標題區
+    # 5. 標題與金額
     st.markdown(f"<div class='total-title'>$ {t_total:,.0f}</div>", unsafe_allow_html=True)
 
-    # --- 6. 核心：橫向膠囊 (使用原生 pills 確保毫秒級反應) ---
+    # 6. 橫向膠囊 (確保快速反應)
     selected_range = st.pills(
         "Range", ["7D", "1M", "3M", "6M", "YTD", "1Y", "ALL"],
         default="ALL", label_visibility="collapsed"
     )
 
-    # 7. 數據動態篩選
+    # 7. 數據動態連動
     now = h_df['Date'].max()
     filter_map = {
         "7D": now - timedelta(days=7), "1M": now - timedelta(days=30),
@@ -102,7 +110,6 @@ try:
     }
     filtered_h = h_df[h_df['Date'] >= filter_map[selected_range]]
     
-    # 計算盈虧
     diff_period = t_total - filtered_h['Total'].iloc[0] if not filtered_h.empty else 0
     diff_today = t_total - h_df['Total'].iloc[-1]
 
@@ -112,26 +119,26 @@ try:
     
     st.markdown(f'<div class="profit-row">{fmt(diff_period)} {selected_range}區間盈虧 ‧ 今日 {fmt(diff_today)}</div>', unsafe_allow_html=True)
 
-    # 8. 圖表美化
+    # 8. 圖表
     fig = go.Figure(go.Scatter(
         x=filtered_h['Date'], y=filtered_h['Total'], 
         mode='lines', line=dict(color='#00F2FE', width=3),
-        fill='tozeroy', fillcolor='rgba(0,242,254,0.03)'
+        fill='tozeroy', fillcolor='rgba(0,242,254,0.02)'
     ))
-    fig.update_layout(height=180, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                      xaxis=dict(visible=False), yaxis=dict(visible=False), hovermode='x unified')
+    fig.update_layout(height=170, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                      xaxis=dict(visible=False), yaxis=dict(visible=False))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # 9. 下方列表
-    st.markdown("<div style='color:#444444; font-size:12px; font-weight:700; margin:15px 5px 10px; letter-spacing:1px;'>CASH ASSETS</div>", unsafe_allow_html=True)
+    # 9. 資產卡片
+    st.markdown("<div style='color:#333333; font-size:11px; font-weight:800; margin:10px 5px; letter-spacing:1px;'>CASH ASSETS</div>", unsafe_allow_html=True)
     for _, r in c_df.iterrows():
         st.markdown(f"""
             <div class="asset-card">
                 <div style="flex-grow:1;">
                     <div style="color:#FFFFFF; font-weight:600; font-size:15px;">{r['子項目']}</div>
-                    <div style="color:#666666; font-size:11px; margin-top:2px;">{r['大項目']}</div>
+                    <div style="color:#555555; font-size:11px; margin-top:2px;">{r['大項目']}</div>
                 </div>
-                <div style="color:#FFFFFF; font-weight:700; font-size:17px; letter-spacing:0.5px;">$ {r['TWD']:,.0f}</div>
+                <div style="color:#FFFFFF; font-weight:700; font-size:17px;">$ {r['TWD']:,.0f}</div>
             </div>
         """, unsafe_allow_html=True)
 
