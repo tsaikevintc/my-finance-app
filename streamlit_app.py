@@ -6,74 +6,69 @@ from datetime import datetime, timedelta
 # 1. 頁面設定
 st.set_page_config(page_title="Insights", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 核心 CSS：使用絕對定位鎖定按鈕，並徹底禁止換行與滾動
+# 2. 終極對齊 CSS
 st.markdown("""
 <style>
-    /* 全域鎖定：禁止任何晃動 */
+    /* 禁止手機左右滑動 */
     html, body, [data-testid="stAppViewContainer"] {
         overflow-x: hidden !important;
         width: 100vw !important;
     }
     .block-container { padding: 1rem 0.8rem !important; max-width: 100vw !important; overflow: hidden !important; }
-
     .stApp { background-color: #0B0E14; color: #FFFFFF; font-family: 'Inter', sans-serif; }
 
-    /* 頂部 Header：金額位置固定 */
-    .header-box {
-        position: relative;
-        height: 60px;
-        width: 100%;
+    /* 頂部區域容器 */
+    .top-container {
         display: flex;
+        justify-content: space-between;
         align-items: center;
+        width: 100%;
+        margin-top: 10px;
     }
     .total-title { font-size: 34px; font-weight: 700; color: #FFFFFF; }
 
-    /* 終極對齊：將按鈕群組絕對定位在右上方 */
-    .floating-btns {
+    /* 針對 Streamlit Segmented Control 的膠囊風改造 */
+    div[data-testid="stVerticalBlockBorderWrapper"] { border: none !important; }
+    
+    /* 強制膠囊縮小並並排在大數字右側 */
+    div[data-testid="stSegmentedControl"] {
         position: absolute;
-        top: 15px;
         right: 0px;
-        z-index: 999;
-    }
-
-    /* 強制按鈕容器橫向排開 */
-    div[data-testid="column"] {
-        width: auto !important;
-        flex: unset !important;
-    }
-    div[data-testid="stHorizontalBlock"] {
+        top: 25px; /* 根據金額數字高度微調 */
         gap: 4px !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        display: flex !important;
     }
-
-    /* 膠囊按鈕微縮樣式 */
-    div.stButton > button {
-        border-radius: 20px !important;
-        height: 22px !important;
-        width: 48px !important;
-        min-width: 48px !important;
+    
+    /* 膠囊按鈕樣式微縮 */
+    div[data-testid="stSegmentedControl"] button {
         background-color: #1C212B !important;
         color: #9CA3AF !important;
+        border: none !important;
+        border-radius: 20px !important;
+        padding: 2px 8px !important;
+        min-height: 24px !important;
+        height: 24px !important;
         font-size: 10px !important;
-        padding: 0px !important;
-        border: 1px solid rgba(255,255,255,0.05) !important;
     }
-    div.stButton > button:focus, div.stButton > button:active { 
-        background-color: #00F2FE !important; color: #000 !important; 
+    div[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+        background-color: #00F2FE !important;
+        color: #000 !important;
+        font-weight: 700;
     }
 
-    /* 時間軸強制橫排補丁 */
-    .time-wrap [data-testid="stHorizontalBlock"] {
-        margin-top: 10px !important;
+    /* 時間軸 (底部 7D, 1M 等) 橫排補丁 */
+    .time-wrap [data-testid="stSegmentedControl"] {
+        position: relative !important;
+        top: 0 !important;
+        width: 100% !important;
         justify-content: space-between !important;
     }
-    .time-wrap button { background: transparent !important; width: auto !important; min-width: 32px !important; font-size: 11px !important; border: none !important; }
 
-    /* 盈虧與卡片 */
-    .profit-row { font-size: 12px; color: #9CA3AF; margin-top: -10px; margin-bottom: 15px; }
+    /* 盈虧樣式 */
+    .profit-row { font-size: 13px; color: #9CA3AF; margin: -5px 0 15px 2px; }
     .pos { color: #00F2FE; font-weight: 600; }
+    
+    /* 卡片列表復原 */
+    .section-header { font-size: 14px; color: #9CA3AF; margin: 20px 0 10px 5px; }
     .custom-card {
         background: #161B22; border-radius: 12px; padding: 12px;
         margin-bottom: 10px; display: flex; align-items: center; border: 1px solid #1F2937;
@@ -89,39 +84,46 @@ st.markdown("""
 
 # 3. 邏輯與數據渲染
 try:
-    if 'view' not in st.session_state: st.session_state.view = 'Total'
+    # 模擬數據
     total_assets, total_cash, total_inv = 2329010, 2247500, 81510
-    curr_val = {'Total': total_assets, 'Cash': total_cash, 'Invest': total_inv}[st.session_state.view]
-
-    # --- 頂部：數字與浮動按鈕 ---
-    st.markdown('<div class="header-box">', unsafe_allow_html=True)
+    
+    # 頂部佈局：數字渲染
+    st.markdown('<div class="top-container">', unsafe_allow_html=True)
+    # 我們需要偵測當前選中的值
+    if 'view_opt' not in st.session_state: st.session_state.view_opt = '總覽'
+    
+    curr_val = {'總覽': total_assets, '現金': total_cash, '投資': total_inv}[st.session_state.view_opt]
     st.markdown(f"<div class='total-title'>$ {curr_val:,.0f}</div>", unsafe_allow_html=True)
     
-    # 使用絕對定位包裹按鈕
-    st.markdown('<div class="floating-btns">', unsafe_allow_html=True)
-    b_col1, b_col2, b_col3 = st.columns(3)
-    if b_col1.button("總覽"): st.session_state.view = 'Total'
-    if b_col2.button("現金"): st.session_state.view = 'Cash'
-    if b_col3.button("投資"): st.session_state.view = 'Invest'
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    # 使用 st.segmented_control 代替按鈕，它在行動端渲染更穩定且不會換行
+    st.session_state.view_opt = st.segmented_control(
+        label="View Filter",
+        options=["總覽", "現金", "投資"],
+        default="總覽",
+        label_visibility="collapsed"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 盈虧 ---
-    st.markdown(f'<div class="profit-row"><span class="pos">+2,035,360</span> 全部時間 ‧ 今日 <span class="pos">+1,112,247</span></div>', unsafe_allow_html=True)
+    # 盈虧
+    st.markdown(f'<div class="profit-row"><span class="pos">+2,314,010</span> 全部時間 ‧ 今日 <span class="pos">+2,247,500</span></div>', unsafe_allow_html=True)
 
-    # --- 圖表 ---
-    fig = go.Figure(go.Scatter(y=[1, 1.2, 1.1, 1.5, 1.4, 1.8], mode='lines', line=dict(color='#00F2FE', width=3), fill='tozeroy', fillcolor='rgba(0,242,254,0.05)'))
+    # 圖表
+    fig = go.Figure(go.Scatter(y=[1.1, 1.4, 1.3, 1.6, 1.5, 1.9], mode='lines', line=dict(color='#00F2FE', width=3), fill='tozeroy', fillcolor='rgba(0,242,254,0.05)'))
     fig.update_layout(height=180, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False))
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # --- 時間橫軸 ---
+    # 時間軸 (同樣使用 segmented_control 確保手機橫排不跑位)
     st.markdown('<div class="time-wrap">', unsafe_allow_html=True)
-    t_cols = st.columns(7)
-    for i, r in enumerate(['7D', '1M', '3M', '6M', 'YTD', '1Y', 'ALL']):
-        t_cols[i].button(r)
+    st.segmented_control(
+        label="Time Filter",
+        options=["7D", "1M", "3M", "6M", "YTD", "1Y", "ALL"],
+        default="ALL",
+        label_visibility="collapsed"
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 卡片列表 ---
-    st.markdown("<div style='font-size:14px; color:#9CA3AF; margin:20px 0 10px 5px;'>● 投資</div>", unsafe_allow_html=True)
+    # 資產列表
+    st.markdown("<div class='section-header'>● 投資項目</div>", unsafe_allow_html=True)
     
     def render_row(name, sub, val, pct, color):
         st.markdown(f"""
@@ -139,4 +141,4 @@ try:
     render_row("蘋果", "美股 ‧ NASDAQ:AAPL", 8125, 9, "#FFD700")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"UI Error: {e}")
